@@ -28,6 +28,8 @@ RUN npm run build:static
 FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
+# go.mod replaces norma with this directory: go mod download reads its go.mod.
+COPY third_party/norma ./third_party/norma
 RUN go mod download
 COPY . .
 # Reuse the frontend built above; build.sh skips its own frontend step.
