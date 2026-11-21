@@ -31,7 +31,8 @@ jobs:
           go-version-file: go.mod
       - name: gofmt
         run: |
-          files=$(gofmt -l $(git ls-files '*.go'))
+          # third_party/ is kept byte-identical to the reviewed upstream release.
+          files=$(gofmt -l $(git ls-files '*.go' ':!third_party/'))
           if [ -n "$files" ]; then echo "gofmt required:"; echo "$files"; exit 1; fi
       - run: go build ./...
       - run: go vet ./...
