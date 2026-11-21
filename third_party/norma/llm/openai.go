@@ -288,10 +288,59 @@ func (p *openaiProvider) buildBody(req CompletionRequest, stream bool) ([]byte, 
 		ot.Type = "function"
 		ot.Function.Name = t.Name
 		ot.Function.Description = t.Description
-		ot.Function.Parameters = t.InputSchema
+		// Some OpenAI-compatible gateways (e.g. Databricks serving of Llama) reject
+		// tool schemas that carry JSON-Schema validation keywords such as "pattern".
+		// Strip them from a deep copy so the model-facing schema is accepted; the
+		// caller's own schema (used for input validation) is left untouched.
+		ot.Function.Parameters = sanitizeGatewaySchema(t.InputSchema)
 		body.Tools = append(body.Tools, ot)
 	}
 	return json.Marshal(body)
+}
+
+// gatewayUnsupportedSchemaKeys are JSON-Schema validation keywords that some
+// OpenAI-compatible gateways reject in function/tool parameter schemas. They are
+// hints for the model only; removing them does not change how the caller
+// validates tool inputs.
+var gatewayUnsupportedSchemaKeys = map[string]bool{
+	"pattern": true, "format": true,
+	"minLength": true, "maxLength": true,
+	"minimum": true, "maximum": true,
+	"exclusiveMinimum": true, "exclusiveMaximum": true,
+	"minItems": true, "maxItems": true, "multipleOf": true,
+}
+
+// sanitizeGatewaySchema returns a deep copy of a tool parameter schema with the
+// gateway-unsupported validation keywords removed recursively. The input is not
+// modified. A nil input returns nil.
+func sanitizeGatewaySchema(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out, _ := sanitizeSchemaValue(in).(map[string]any)
+	return out
+}
+
+func sanitizeSchemaValue(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, val := range t {
+			if gatewayUnsupportedSchemaKeys[k] {
+				continue
+			}
+			out[k] = sanitizeSchemaValue(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, val := range t {
+			out[i] = sanitizeSchemaValue(val)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // emptyResponseRetries is the DEFAULT bound on how many times a completed-but-
